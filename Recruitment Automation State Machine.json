@@ -1,0 +1,1325 @@
+{
+  "name": "Recruitment Automation State Machine",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "facebook-leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "5023c0e8-ff20-45fb-9ebf-057e0abd43fa",
+      "name": "Facebook Lead Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -192
+      ],
+      "webhookId": "fb-leads-001"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "job-portal-leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "f7971ae6-db10-4657-bde9-786ff702d4a8",
+      "name": "Job Portal Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        896,
+        -32
+      ],
+      "webhookId": "job-portal-001"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "ae2f54d2-abb7-4566-81a8-13918edb8c42",
+      "name": "Email Trigger (Dubizzle)",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        896,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse email body to extract candidate info\nconst emailBody = $input.item.json.text || $input.item.json.html;\n\n// Regex patterns for extracting information\nconst nameMatch = emailBody.match(/Name[:\\s]+([^\\n]+)/i);\nconst phoneMatch = emailBody.match(/Phone[:\\s]+(\\+?[0-9\\s-]+)/i);\nconst positionMatch = emailBody.match(/Position[:\\s]+([^\\n]+)/i);\n\nreturn {\n  json: {\n    name: nameMatch ? nameMatch[1].trim() : 'Unknown',\n    phone: phoneMatch ? phoneMatch[1].trim().replace(/[^0-9+]/g, '') : '',\n    position: positionMatch ? positionMatch[1].trim() : 'Driver',\n    source: 'Dubizzle Email',\n    status: 'New Application',\n    raw_email: emailBody\n  }\n};"
+      },
+      "id": "d814a5cb-09ea-46a1-8daa-57533701c02d",
+      "name": "Parse Email Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize data from all sources\nconst item = $input.item.json;\n\n// Determine source and extract data accordingly\nlet normalizedData = {};\n\nif (item.source === 'Dubizzle Email') {\n  normalizedData = item;\n} else if (item.leadgen_id) {\n  // Facebook Lead\n  normalizedData = {\n    name: item.field_data?.find(f => f.name === 'full_name')?.values[0] || 'Unknown',\n    phone: item.field_data?.find(f => f.name === 'phone_number')?.values[0] || '',\n    position: 'Driver',\n    source: 'Facebook Lead Ad',\n    status: 'New Application'\n  };\n} else {\n  // Job Portal\n  normalizedData = {\n    name: item.name || item.applicant_name || 'Unknown',\n    phone: item.phone || item.mobile || '',\n    position: item.position || 'Driver',\n    source: item.portal_name || 'Job Portal',\n    status: 'New Application'\n  };\n}\n\n// Ensure phone has country code\nif (normalizedData.phone && !normalizedData.phone.startsWith('+')) {\n  normalizedData.phone = '+971' + normalizedData.phone; // UAE default\n}\n\nreturn {\n  json: normalizedData\n};"
+      },
+      "id": "133fb9b5-927a-45b3-895f-d9c6e05fe2f5",
+      "name": "Normalize Lead Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "additionalFields": {}
+      },
+      "id": "917faab0-1691-4fb5-8b0f-1cade2b6b2a7",
+      "name": "Create Zoho CRM Lead",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        1504,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $json.phone }}"
+            },
+            {
+              "name": "type",
+              "value": "template"
+            },
+            {
+              "name": "template",
+              "value": "={\n  \"name\": \"initial_greeting\",\n  \"language\": { \"code\": \"en\" },\n  \"components\": [\n    {\n      \"type\": \"body\",\n      \"parameters\": [\n        { \"type\": \"text\", \"text\": \"{{ $json.name }}\" }\n      ]\n    }\n  ]\n}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "88c18833-c3b1-4ea4-b50a-b9d2b36ef213",
+      "name": "Send Initial WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1696,
+        -32
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-response",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1a75463a-36f7-4ad4-b3ee-8e794498b7ea",
+      "name": "WhatsApp Response Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        896,
+        320
+      ],
+      "webhookId": "whatsapp-resp-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract message from WhatsApp webhook\nconst webhookData = $input.item.json;\nconst message = webhookData.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\n\nif (!message) {\n  return { json: { error: 'No message found' } };\n}\n\nreturn {\n  json: {\n    phone: message.from,\n    message_text: message.text?.body || '',\n    message_id: message.id,\n    timestamp: message.timestamp\n  }\n};"
+      },
+      "id": "4f3669bc-6ee0-4c12-87f5-90c516f421e2",
+      "name": "Extract WhatsApp Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "search"
+      },
+      "id": "afb267b6-1381-40e9-bc37-f89006ec3a53",
+      "name": "Find Lead in CRM",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        1296,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "model": "o4-mini",
+        "options": {
+          "temperature": 0.3
+        },
+        "requestOptions": {}
+      },
+      "id": "68303af9-456d-4acc-96aa-8b51bd7100b2",
+      "name": "AI Analyze Response",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        320
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "P4NESClX0dBthYz4",
+          "name": "OpenAi account dgtlbase"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response\nconst aiResponse = JSON.parse($input.item.json.choices[0].message.content);\nconst leadData = $node[\"Find Lead in CRM\"].json.data[0];\n\nreturn {\n  json: {\n    ...leadData,\n    ai_analysis: aiResponse,\n    candidate_phone: $node[\"Extract WhatsApp Message\"].json.phone,\n    candidate_message: $node[\"Extract WhatsApp Message\"].json.message_text\n  }\n};"
+      },
+      "id": "b929312f-7e8b-48fc-ab6f-1fcea620229f",
+      "name": "Combine Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.ai_analysis.interest }}",
+              "operation": "equals",
+              "value2": "no"
+            }
+          ]
+        }
+      },
+      "id": "bbeba47c-278f-4dd4-ab7d-6b536d878de1",
+      "name": "Not Interested?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1888,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{ $json.id }}",
+        "updateFields": {
+          "Lead_Status": "Not Interested"
+        }
+      },
+      "id": "c8b742f8-a63a-4bdd-a7a5-c7a0dd4fae97",
+      "name": "Update CRM - Not Interested",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        2112,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.ai_analysis.disqualified }}",
+              "operation": "equals",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "a800d534-5170-4434-9deb-65d903badb26",
+      "name": "Disqualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2096,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{ $json.id }}",
+        "updateFields": {
+          "Description": "={{ $json.ai_analysis.reason }}",
+          "Lead_Status": "Disqualified"
+        }
+      },
+      "id": "615e8499-46d7-4aaa-acdf-12742e2e1bc6",
+      "name": "Update CRM - Disqualified",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $json.candidate_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"Thank you for your interest. Unfortunately, {{ $json.ai_analysis.reason }}. We'll keep your information on file for future opportunities.\"\n  }\n}",
+        "options": {}
+      },
+      "id": "563e795a-df03-4e88-b955-e8ecfd8c0955",
+      "name": "Send Rejection Message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2480,
+        160
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.ai_analysis.stage }}",
+              "operation": "equals",
+              "value2": "qualified"
+            }
+          ]
+        }
+      },
+      "id": "c024f5c9-7cca-49e4-9bfa-596a34e80706",
+      "name": "Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2288,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $json.candidate_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"{{ $json.ai_analysis.next_question }}\"\n  }\n}",
+        "options": {}
+      },
+      "id": "4c4a6284-6c29-47e7-ba1c-cdcf8ab08f01",
+      "name": "Send Next Screening Question",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2496,
+        528
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{ $json.id }}",
+        "updateFields": {
+          "Lead_Status": "Screening in Progress"
+        }
+      },
+      "id": "94b53636-bb60-416e-be37-39f16aa8cbbf",
+      "name": "Update CRM - Screening",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        2704,
+        528
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.cal.com/v1/availability",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "apiKey",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "username",
+              "value": "recruitment-team"
+            },
+            {
+              "name": "eventTypeId",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "113b2ca3-3f6f-4e04-bd63-4d5d030e5090",
+      "name": "Get Cal.com Availability",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2496,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HJvkWfgeaAJ5ZEsp",
+          "name": "Runway"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $json.candidate_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"Great! You've passed our initial screening. Please book your interview here: https://cal.com/recruitment-team/interview\"\n  }\n}",
+        "options": {}
+      },
+      "id": "cdd0b59e-9df7-4de1-b193-4b926274c117",
+      "name": "Send Booking Link",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2688,
+        320
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cal-booking-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "02161ae9-4115-4568-9b66-2d336d1736d4",
+      "name": "Cal.com Booking Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        880,
+        720
+      ],
+      "webhookId": "cal-booking-001"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract booking information from Cal.com webhook\nconst booking = $input.item.json;\n\nreturn {\n  json: {\n    booking_id: booking.id,\n    attendee_phone: booking.attendees[0].phoneNumber,\n    attendee_email: booking.attendees[0].email,\n    start_time: booking.startTime,\n    end_time: booking.endTime,\n    location: booking.location,\n    meeting_url: booking.location // if virtual\n  }\n};"
+      },
+      "id": "0801e2eb-f5b3-4074-8739-17ff19e95352",
+      "name": "Extract Booking Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "search"
+      },
+      "id": "7311707f-ff64-4936-902b-3d2b619dac03",
+      "name": "Find Lead for Booking",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{ $json.data[0].id }}",
+        "updateFields": {
+          "Description": "=Interview scheduled for {{ $node[\"Extract Booking Data\"].json.start_time }}",
+          "Lead_Status": "Interview Scheduled"
+        }
+      },
+      "id": "506ec8a9-cc9a-406a-9d6e-e688a3552512",
+      "name": "Update CRM - Interview Scheduled",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        1472,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $node[\"Extract Booking Data\"].json.attendee_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"✅ Interview confirmed for {{ $node[\"Extract Booking Data\"].json.start_time }}\\n\\n📍 Location: {{ $node[\"Extract Booking Data\"].json.location }}\\n\\nWe'll send you reminders before your appointment. See you soon!\"\n  }\n}",
+        "options": {}
+      },
+      "id": "c96d02c3-d79e-4511-860e-4910e6b25eac",
+      "name": "Send Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1680,
+        720
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 24
+      },
+      "id": "bb322158-a2bc-4292-8843-bd123f8e4aa2",
+      "name": "Wait 24 Hours",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        1872,
+        720
+      ],
+      "webhookId": "aba59cf9-537a-4172-821a-5670a84c7883"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $node[\"Extract Booking Data\"].json.attendee_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"⏰ Reminder: Your interview is tomorrow at {{ $node[\"Extract Booking Data\"].json.start_time }}. Looking forward to meeting you!\"\n  }\n}",
+        "options": {}
+      },
+      "id": "1963102d-1f4f-40c8-b3f7-0c71ca1dc0e5",
+      "name": "Send 24h Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2080,
+        720
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": 22
+      },
+      "id": "74feb1cb-83fb-49fb-970a-0f95c55c3d7a",
+      "name": "Wait 22 More Hours",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1,
+      "position": [
+        2272,
+        720
+      ],
+      "webhookId": "7223b711-3440-439f-a6f0-f9c2b3270c99"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://waba.360dialog.io/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "D360-API-KEY",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"to\": \"{{ $node[\"Extract Booking Data\"].json.attendee_phone }}\",\n  \"type\": \"text\",\n  \"text\": {\n    \"body\": \"⏰ Final reminder: Your interview is in 2 hours at {{ $node[\"Extract Booking Data\"].json.start_time }}. See you soon!\"\n  }\n}",
+        "options": {}
+      },
+      "id": "2087d29a-4e35-43ba-88df-9af767ed24e8",
+      "name": "Send 2h Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2480,
+        720
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "oOdVJzP6HdYeDo9y",
+          "name": "Unnamed credential"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "c6a2bbc2-b5c7-4ffd-969f-d0fee570aea0",
+      "name": "Check Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        896,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "getAll",
+        "limit": 50,
+        "options": {}
+      },
+      "id": "74520ef5-1a7e-466f-af15-15664090e7e6",
+      "name": "Get Leads in Screening",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        1088,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if lead hasn't responded in 4 hours\nconst now = new Date();\nconst leads = $input.all();\n\nconst nonResponsive = leads.filter(item => {\n  const lastContact = new Date(item.json.Last_Activity_Time);\n  const hoursSince = (now - lastContact) / (1000 * 60 * 60);\n  return hoursSince >= 4;\n});\n\nreturn nonResponsive.map(item => ({ json: item.json }));"
+      },
+      "id": "2be3dfcf-ee87-4b4a-afb4-b4cbfda89cbc",
+      "name": "Filter 4h Non-Responsive",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/create-phone-call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $credentials.apiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from_number\": \"+971XXXXXXXX\",\n  \"to_number\": \"{{ $json.Mobile }}\",\n  \"agent_id\": \"your-retell-agent-id\",\n  \"metadata\": {\n    \"lead_id\": \"{{ $json.id }}\",\n    \"candidate_name\": \"{{ $json.Last_Name }}\"\n  },\n  \"override_agent_prompt\": \"You are calling {{ $json.Last_Name }} regarding their driver job application. Screen them for: 1) Valid UAE license 2) 12-hour shift availability 3) Start date within 2 weeks. If qualified, book an interview appointment.\"\n}",
+        "options": {}
+      },
+      "id": "2aa0d719-e869-432f-8e5a-2aaa8291da4e",
+      "name": "Trigger Retell AI Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1488,
+        976
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HJvkWfgeaAJ5ZEsp",
+          "name": "Runway"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{ $json.id }}",
+        "updateFields": {
+          "Description": "=Voice AI call initiated at {{ $now }}"
+        }
+      },
+      "id": "9719d97a-1145-4df3-baeb-d4dbbd162ad0",
+      "name": "Log Call in CRM",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        1696,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retell-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "66bf974b-cf09-4747-953e-d6e9a8b428e7",
+      "name": "Retell Call Result Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        1888,
+        976
+      ],
+      "webhookId": "e1d74ab0-e207-4fc4-94d1-565aea797304"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Retell AI call results\nconst callData = $input.item.json;\n\nreturn {\n  json: {\n    lead_id: callData.metadata.lead_id,\n    call_successful: callData.call_status === 'completed',\n    transcript: callData.transcript,\n    call_analysis: callData.call_analysis,\n    qualified: callData.call_analysis?.qualified || false,\n    booked_appointment: callData.call_analysis?.appointment_booked || false\n  }\n};"
+      },
+      "id": "80a1a127-39e0-40ac-8cde-bc0abad6e761",
+      "name": "Process Call Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2096,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.booked_appointment }}",
+              "operation": "equals",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "0d0d9f40-0d45-482b-9046-fd60a13d3cc4",
+      "name": "Appointment Booked?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        2304,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "lead",
+        "operation": "update",
+        "leadId": "={{ $json.lead_id }}",
+        "updateFields": {
+          "Description": "={{ $json.transcript }}",
+          "Lead_Status": "Interview Scheduled - Voice Call"
+        }
+      },
+      "id": "3f46f684-c858-4b91-99a4-a2a205193980",
+      "name": "Update CRM - Scheduled via Call",
+      "type": "n8n-nodes-base.zohoCrm",
+      "typeVersion": 1,
+      "position": [
+        2512,
+        960
+      ]
+    },
+    {
+      "parameters": {
+        "content": "# Lead Capture + Normalize Lead + Initial Contact\n\n\n## 1. Facebook Lead Ads Webhook\n## 2. Job Portal Webhook (e.g., Bayt, LinkedIn)\n## 3. Email parsing (Dubbizle)",
+        "height": 288,
+        "width": 624
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        208,
+        -112
+      ],
+      "typeVersion": 1,
+      "id": "a798c92a-1cc0-40ce-a307-ecff7bddde8d",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "# Response handling + AI screening + Decision Logic\n\n\n## 1. WhatsApp Response Webhook\n## 2. Extrat Whatsapp Message\n## 3. Find Lead in CRM\n## 4. AI Analyze Response\n## 5. Decision Logic for qualification",
+        "height": 352,
+        "width": 624,
+        "color": 2
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        208,
+        256
+      ],
+      "typeVersion": 1,
+      "id": "d1607126-48e8-4573-89dd-32eb04369995",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "# Appointment Setting + Confirmation & Reminders + \n\n\n## 1. Get Cal.com availability. Send booking link. update CRM\n## 2. Send Confirmations Messages\n## 3. Send followup reminders",
+        "height": 288,
+        "width": 624,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        208,
+        640
+      ],
+      "typeVersion": 1,
+      "id": "e9d38c55-a816-4eb7-9cfc-7f4c90ff82c0",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "# Voice AI Follow-up\n\n\n## 1. Non-Responsive Detection\n## 2. Log call in CRM\n## 3. Log call outcome in CRM",
+        "height": 224,
+        "width": 624,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        208,
+        960
+      ],
+      "typeVersion": 1,
+      "id": "16dc2b3a-e97b-4cd9-93d2-2d2cecaf4ac6",
+      "name": "Sticky Note3"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Facebook Lead Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Job Portal Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Trigger (Dubizzle)": {
+      "main": [
+        [
+          {
+            "node": "Parse Email Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Email Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize Lead Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Lead Data": {
+      "main": [
+        [
+          {
+            "node": "Create Zoho CRM Lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Zoho CRM Lead": {
+      "main": [
+        [
+          {
+            "node": "Send Initial WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp Response Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract WhatsApp Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract WhatsApp Message": {
+      "main": [
+        [
+          {
+            "node": "Find Lead in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Lead in CRM": {
+      "main": [
+        [
+          {
+            "node": "AI Analyze Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Analyze Response": {
+      "main": [
+        [
+          {
+            "node": "Combine Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Data": {
+      "main": [
+        [
+          {
+            "node": "Not Interested?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not Interested?": {
+      "main": [
+        [
+          {
+            "node": "Update CRM - Not Interested",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Disqualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disqualified?": {
+      "main": [
+        [
+          {
+            "node": "Update CRM - Disqualified",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update CRM - Disqualified": {
+      "main": [
+        [
+          {
+            "node": "Send Rejection Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Get Cal.com Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Next Screening Question",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Next Screening Question": {
+      "main": [
+        [
+          {
+            "node": "Update CRM - Screening",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Cal.com Availability": {
+      "main": [
+        [
+          {
+            "node": "Send Booking Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cal.com Booking Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Booking Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Booking Data": {
+      "main": [
+        [
+          {
+            "node": "Find Lead for Booking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Lead for Booking": {
+      "main": [
+        [
+          {
+            "node": "Update CRM - Interview Scheduled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update CRM - Interview Scheduled": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Wait 24 Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 24 Hours": {
+      "main": [
+        [
+          {
+            "node": "Send 24h Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send 24h Reminder": {
+      "main": [
+        [
+          {
+            "node": "Wait 22 More Hours",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait 22 More Hours": {
+      "main": [
+        [
+          {
+            "node": "Send 2h Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Leads in Screening",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Leads in Screening": {
+      "main": [
+        [
+          {
+            "node": "Filter 4h Non-Responsive",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter 4h Non-Responsive": {
+      "main": [
+        [
+          {
+            "node": "Trigger Retell AI Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Retell AI Call": {
+      "main": [
+        [
+          {
+            "node": "Log Call in CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell Call Result Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Call Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Call Result": {
+      "main": [
+        [
+          {
+            "node": "Appointment Booked?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Appointment Booked?": {
+      "main": [
+        [
+          {
+            "node": "Update CRM - Scheduled via Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "403ef379-9b58-4cbf-8f66-ede7399b2e5f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "563081422b97a9613202fc9e330444d764a4b838aee8c810ae24b64e312e87c7"
+  },
+  "id": "NmZ6ccSzl6lyRBzR",
+  "tags": []
+}
